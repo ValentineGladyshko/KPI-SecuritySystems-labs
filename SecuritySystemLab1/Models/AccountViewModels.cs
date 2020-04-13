@@ -38,32 +38,27 @@ namespace SecuritySystemLab1.Models
         public string ConfirmPassword { get; set; }
     }
 
-    public class ResetPasswordViewModel
+    public class ChangePasswordViewModel
     {
         [Required]
-        [EmailAddress]
-        [Display(Name = "Адрес электронной почты")]
-        public string Email { get; set; }
+        [DataType(DataType.Password)]
+        [Display(Name = "Текущий пароль")]
+        public string OldPassword { get; set; }
 
         [Required]
-        [StringLength(100, ErrorMessage = "Значение {0} должно содержать не менее {2} символов.", MinimumLength = 6)]
+        [StringLength(100, ErrorMessage = "Значение {0} должно содержать символов не менее: {2}.", MinimumLength = 8)]
         [DataType(DataType.Password)]
-        [Display(Name = "Пароль")]
-        public string Password { get; set; }
+        [Display(Name = "Новый пароль")]
+        public string NewPassword { get; set; }
 
         [DataType(DataType.Password)]
-        [Display(Name = "Подтверждение пароля")]
-        [Compare("Password", ErrorMessage = "Пароль и его подтверждение не совпадают.")]
+        [Display(Name = "Подтверждение нового пароля")]
+        [Compare("NewPassword", ErrorMessage = "Новый пароль и его подтверждение не совпадают.")]
         public string ConfirmPassword { get; set; }
-
-        public string Code { get; set; }
     }
 
-    public class ForgotPasswordViewModel
+    public class DeleteViewModel
     {
-        [Required]
-        [EmailAddress]
-        [Display(Name = "Почта")]
-        public string Email { get; set; }
+
     }
 }

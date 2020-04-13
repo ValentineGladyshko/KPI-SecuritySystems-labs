@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Data.Entity;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -23,7 +24,15 @@ namespace SecuritySystemLab1.Controllers
         {
             db = new AccountModel();
         }
-         
+
+        public ActionResult Main(ManageMessageId? message)
+        {
+            ViewBag.StatusMessage =
+                message == ManageMessageId.ChangePasswordSuccess ? "Ваш пароль изменен."              
+                : message == ManageMessageId.Error ? "Произошла ошибка."             
+                : "";
+            return View();
+        }
 
         [AllowAnonymous]
         public ActionResult Login(string returnUrl)
@@ -74,16 +83,12 @@ namespace SecuritySystemLab1.Controllers
             }            
         }
 
-        //
-        // GET: /Account/Register
         [AllowAnonymous]
         public ActionResult Register()
         {
             return View();
         }
 
-        //
-        // POST: /Account/Register
         [HttpPost]
         [AllowAnonymous]
         [ValidateAntiForgeryToken]
@@ -120,23 +125,88 @@ namespace SecuritySystemLab1.Controllers
                     ModelState.AddModelError("", "Уже существует пользователь з данным логином.");
                     return View(model);
                 }
-                //var user = new ApplicationUser { UserName = model.Email, Email = model.Email };
-                //var result = await UserManager.CreateAsync(user, model.Password);
-                //if (result.Succeeded)
-                //{
-                //    await SignInManager.SignInAsync(user, isPersistent: false, rememberBrowser: false);
-
-                //    return RedirectToAction("Index", "Home");
-                //}
-                //AddErrors(result);
+               
             }
-
-            // Появление этого сообщения означает наличие ошибки; повторное отображение формы
             return View(model);
         }
 
-        //
-        // POST: /Account/LogOff
+        public ActionResult ChangePassword()
+        {
+            return View();
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public ActionResult ChangePassword(ChangePasswordViewModel model)
+        {
+            if (!ModelState.IsValid)
+            {
+                return View(model);
+            }
+
+            var list = db.Accounts.Where(a => a.Login == User.Identity.Name).Take(1).ToList();
+            if (list.Count != 0)
+            {
+                Account account = list[0];
+                byte[] empty = null;
+                byte[] key = null;
+                using (FileStream fstream = new FileStream(@"C:\Users\Valentine\source\repos\SecuritySystemLab1\SecuritySystemLab1\note.txt", FileMode.Open))
+                {
+                    key = new byte[fstream.Length];
+                    fstream.Read(key, 0, key.Length);
+                }
+
+                var decrypted = SecretAead.Decrypt(list[0].Password, list[0].Nonce, key, null);
+
+                if (PasswordHash.ArgonHashStringVerify(Encoding.UTF8.GetString(decrypted), Encoding.UTF8.GetString(GenericHash.Hash(model.OldPassword, empty, 32))))
+                {
+                    var nonce = SecretAead.GenerateNonce();
+                    var encrypted = SecretAead.Encrypt(Encoding.UTF8.GetBytes(
+                        PasswordHash.ArgonHashString(Encoding.UTF8.GetString(GenericHash.Hash(model.NewPassword, empty, 32)),
+                        PasswordHash.StrengthArgon.Interactive)), nonce, key, null);
+                    account.Nonce = nonce;
+                    account.Password = encrypted;
+                    db.Entry(account).State = EntityState.Modified;
+                    db.SaveChanges();
+
+                    return RedirectToAction("Main", new { Message = ManageMessageId.ChangePasswordSuccess });
+                }
+            }
+            else
+            {
+                ModelState.AddModelError("", "Произошла ошибка.");
+                return View(model);
+            }
+            return View(model);
+        }
+
+        public ActionResult DeleteAccount()
+        {
+            return View();
+        }
+
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public ActionResult DeleteAccount(DeleteViewModel model)
+        {
+            var list = db.Accounts.Where(a => a.Login == User.Identity.Name).Take(1).ToList();
+            if (list.Count != 0)
+            {
+                Account account = list[0];
+                
+                db.Accounts.Remove(account);
+                db.SaveChanges();
+                FormsAuthentication.SignOut();
+                return RedirectToAction("Index", "Home");
+            }            
+            else
+            {
+                ModelState.AddModelError("", "Произошла ошибка.");
+                return View(model);
+            }
+        }
+
         [HttpPost]
         [ValidateAntiForgeryToken]
         public ActionResult LogOff()
@@ -145,38 +215,9 @@ namespace SecuritySystemLab1.Controllers
             return RedirectToAction("Index", "Home");
         }
 
-        protected override void Dispose(bool disposing)
-        {
-            if (disposing)
-            {
-                //if (_userManager != null)
-                //{
-                //    _userManager.Dispose();
-                //    _userManager = null;
-                //}
+        
 
-                //if (_signInManager != null)
-                //{
-                //    _signInManager.Dispose();
-                //    _signInManager = null;
-                //}
-            }
-
-            base.Dispose(disposing);
-        }
-
-        #region Вспомогательные приложения
-        // Используется для защиты от XSRF-атак при добавлении внешних имен входа
-        private const string XsrfKey = "XsrfId";
-
-        private void AddErrors(IdentityResult result)
-        {
-            foreach (var error in result.Errors)
-            {
-                ModelState.AddModelError("", error);
-            }
-        }
-
+        #region Additional functions         
         private ActionResult RedirectToLocal(string returnUrl)
         {
             if (Url.IsLocalUrl(returnUrl))
@@ -186,24 +227,12 @@ namespace SecuritySystemLab1.Controllers
             return RedirectToAction("Index", "Home");
         }
 
-        internal class ChallengeResult : HttpUnauthorizedResult
+        public enum ManageMessageId
         {
-            public ChallengeResult(string provider, string redirectUri)
-                : this(provider, redirectUri, null)
-            {
-            }
-
-            public ChallengeResult(string provider, string redirectUri, string userId)
-            {
-                LoginProvider = provider;
-                RedirectUri = redirectUri;
-                UserId = userId;
-            }
-
-            public string LoginProvider { get; set; }
-            public string RedirectUri { get; set; }
-            public string UserId { get; set; }
+            ChangePasswordSuccess,
+            Error
         }
+
         #endregion
     }
 }
