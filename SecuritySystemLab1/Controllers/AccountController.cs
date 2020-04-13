@@ -1,59 +1,30 @@
 ﻿using System;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Security.Claims;
+using System.Security.Principal;
+using System.Text;
 using System.Threading.Tasks;
 using System.Web;
 using System.Web.Mvc;
+using System.Web.Security;
 using Microsoft.AspNet.Identity;
-using Microsoft.AspNet.Identity.Owin;
-using Microsoft.Owin.Security;
 using SecuritySystemLab1.Models;
+using Sodium;
 
 namespace SecuritySystemLab1.Controllers
 {
     [Authorize]
     public class AccountController : Controller
     {
-        private ApplicationSignInManager _signInManager;
-        private ApplicationUserManager _userManager;
-
+        private readonly AccountModel db;
         public AccountController()
         {
+            db = new AccountModel();
         }
+         
 
-        public AccountController(ApplicationUserManager userManager, ApplicationSignInManager signInManager )
-        {
-            UserManager = userManager;
-            SignInManager = signInManager;
-        }
-
-        public ApplicationSignInManager SignInManager
-        {
-            get
-            {
-                return _signInManager ?? HttpContext.GetOwinContext().Get<ApplicationSignInManager>();
-            }
-            private set 
-            { 
-                _signInManager = value; 
-            }
-        }
-
-        public ApplicationUserManager UserManager
-        {
-            get
-            {
-                return _userManager ?? HttpContext.GetOwinContext().GetUserManager<ApplicationUserManager>();
-            }
-            private set
-            {
-                _userManager = value;
-            }
-        }
-
-        //
-        // GET: /Account/Login
         [AllowAnonymous]
         public ActionResult Login(string returnUrl)
         {
@@ -61,34 +32,46 @@ namespace SecuritySystemLab1.Controllers
             return View();
         }
 
-        //
-        // POST: /Account/Login
+        
         [HttpPost]
         [AllowAnonymous]
         [ValidateAntiForgeryToken]
-        public async Task<ActionResult> Login(LoginViewModel model, string returnUrl)
+        public ActionResult Login(LoginViewModel model, string returnUrl)
         {
             if (!ModelState.IsValid)
             {
                 return View(model);
             }
 
-            // Сбои при входе не приводят к блокированию учетной записи
-            // Чтобы ошибки при вводе пароля инициировали блокирование учетной записи, замените на shouldLockout: true
-            var result = await SignInManager.PasswordSignInAsync(model.Email, model.Password, model.RememberMe, shouldLockout: false);
-            switch (result)
+            var list = db.Accounts.Where(a => a.Login == model.Email).Take(1).ToList();
+            if (list.Count == 0)
             {
-                case SignInStatus.Success:
-                    return RedirectToLocal(returnUrl);
-                case SignInStatus.LockedOut:
-                    return View("Lockout");
-                case SignInStatus.RequiresVerification:
-                    return RedirectToAction("SendCode", new { ReturnUrl = returnUrl, RememberMe = model.RememberMe });
-                case SignInStatus.Failure:
-                default:
-                    ModelState.AddModelError("", "Неудачная попытка входа.");
-                    return View(model);
+                ModelState.AddModelError("", "Такой аккаунт не существует.");
+                return View(model);
             }
+            else
+            {
+                byte[] empty = null;
+                byte[] key = null;
+                using (FileStream fstream = new FileStream(@"C:\Users\Valentine\source\repos\SecuritySystemLab1\SecuritySystemLab1\note.txt", FileMode.Open))
+                {
+                    key = new byte[fstream.Length];
+                    fstream.Read(key, 0, key.Length);
+                }
+
+                var decrypted = SecretAead.Decrypt(list[0].Password, list[0].Nonce, key, null);
+
+                if (PasswordHash.ArgonHashStringVerify(Encoding.UTF8.GetString(decrypted), Encoding.UTF8.GetString(GenericHash.Hash(model.Password, empty, 32))))
+                {
+                    FormsAuthentication.SetAuthCookie(model.Email, false);
+                    return RedirectToLocal(returnUrl);
+                }
+                else
+                {
+                    ModelState.AddModelError("", "Неверный логин или пароль.");
+                    return View(model);
+                }                
+            }            
         }
 
         //
@@ -104,32 +87,61 @@ namespace SecuritySystemLab1.Controllers
         [HttpPost]
         [AllowAnonymous]
         [ValidateAntiForgeryToken]
-        public async Task<ActionResult> Register(RegisterViewModel model)
+        public ActionResult Register(RegisterViewModel model)
         {
             if (ModelState.IsValid)
             {
-                var user = new ApplicationUser { UserName = model.Email, Email = model.Email };
-                var result = await UserManager.CreateAsync(user, model.Password);
-                if (result.Succeeded)
+                Account account = new Account();
+                account.Login = model.Email;
+                var list = db.Accounts.Where(a => a.Login == model.Email).Take(1).ToList();
+                if (list.Count == 0)
                 {
-                    await SignInManager.SignInAsync(user, isPersistent:false, rememberBrowser:false);
+                    byte[] empty = null;
+                    byte[] key = null;
+                    using (FileStream fstream = new FileStream(@"C:\Users\Valentine\source\repos\SecuritySystemLab1\SecuritySystemLab1\note.txt", FileMode.Open))
+                    {
+                        key = new byte[fstream.Length];
+                        fstream.Read(key, 0, key.Length);
+                    }
 
+                    var nonce = SecretAead.GenerateNonce();
+                    var encrypted = SecretAead.Encrypt(Encoding.UTF8.GetBytes(
+                        PasswordHash.ArgonHashString(Encoding.UTF8.GetString(GenericHash.Hash(model.Password, empty, 32)),
+                        PasswordHash.StrengthArgon.Interactive)), nonce, key, null);
+                    account.Nonce = nonce;
+                    account.Password = encrypted;
+                    db.Accounts.Add(account);
+                    db.SaveChanges();
+                    FormsAuthentication.SetAuthCookie(model.Email, false);
                     return RedirectToAction("Index", "Home");
                 }
-                AddErrors(result);
+                else
+                {
+                    ModelState.AddModelError("", "Уже существует пользователь з данным логином.");
+                    return View(model);
+                }
+                //var user = new ApplicationUser { UserName = model.Email, Email = model.Email };
+                //var result = await UserManager.CreateAsync(user, model.Password);
+                //if (result.Succeeded)
+                //{
+                //    await SignInManager.SignInAsync(user, isPersistent: false, rememberBrowser: false);
+
+                //    return RedirectToAction("Index", "Home");
+                //}
+                //AddErrors(result);
             }
 
             // Появление этого сообщения означает наличие ошибки; повторное отображение формы
             return View(model);
-        }             
-                
+        }
+
         //
         // POST: /Account/LogOff
         [HttpPost]
         [ValidateAntiForgeryToken]
         public ActionResult LogOff()
         {
-            AuthenticationManager.SignOut(DefaultAuthenticationTypes.ApplicationCookie);
+            FormsAuthentication.SignOut();
             return RedirectToAction("Index", "Home");
         }
 
@@ -137,17 +149,17 @@ namespace SecuritySystemLab1.Controllers
         {
             if (disposing)
             {
-                if (_userManager != null)
-                {
-                    _userManager.Dispose();
-                    _userManager = null;
-                }
+                //if (_userManager != null)
+                //{
+                //    _userManager.Dispose();
+                //    _userManager = null;
+                //}
 
-                if (_signInManager != null)
-                {
-                    _signInManager.Dispose();
-                    _signInManager = null;
-                }
+                //if (_signInManager != null)
+                //{
+                //    _signInManager.Dispose();
+                //    _signInManager = null;
+                //}
             }
 
             base.Dispose(disposing);
@@ -156,14 +168,6 @@ namespace SecuritySystemLab1.Controllers
         #region Вспомогательные приложения
         // Используется для защиты от XSRF-атак при добавлении внешних имен входа
         private const string XsrfKey = "XsrfId";
-
-        private IAuthenticationManager AuthenticationManager
-        {
-            get
-            {
-                return HttpContext.GetOwinContext().Authentication;
-            }
-        }
 
         private void AddErrors(IdentityResult result)
         {
@@ -199,16 +203,6 @@ namespace SecuritySystemLab1.Controllers
             public string LoginProvider { get; set; }
             public string RedirectUri { get; set; }
             public string UserId { get; set; }
-
-            public override void ExecuteResult(ControllerContext context)
-            {
-                var properties = new AuthenticationProperties { RedirectUri = RedirectUri };
-                if (UserId != null)
-                {
-                    properties.Dictionary[XsrfKey] = UserId;
-                }
-                context.HttpContext.GetOwinContext().Authentication.Challenge(properties, LoginProvider);
-            }
         }
         #endregion
     }
