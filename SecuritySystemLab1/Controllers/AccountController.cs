@@ -16,7 +16,7 @@ using Sodium;
 
 namespace SecuritySystemLab1.Controllers
 {
-    [Authorize]
+    [Authorize(Roles = "User")]
     public class AccountController : Controller
     {
         private readonly AccountModel db;
@@ -47,6 +47,7 @@ namespace SecuritySystemLab1.Controllers
         [ValidateAntiForgeryToken]
         public ActionResult Login(LoginViewModel model, string returnUrl)
         {
+            
             if (!ModelState.IsValid)
             {
                 return View(model);
@@ -73,6 +74,12 @@ namespace SecuritySystemLab1.Controllers
                 if (PasswordHash.ArgonHashStringVerify(Encoding.UTF8.GetString(decrypted), Encoding.UTF8.GetString(GenericHash.Hash(model.Password, empty, 32))))
                 {
                     FormsAuthentication.SetAuthCookie(model.Email, false);
+                    var rolesArray = Roles.GetRolesForUser(User.Identity.Name);
+                    Roles.CreateRole("User");
+
+                    //Roles.AddUserToRole(User.Identity.Name, "Member");
+                    //RolePrincipal r = (RolePrincipal)User;
+                    //var rolesArray1 = r.GetRoles();
                     return RedirectToLocal(returnUrl);
                 }
                 else
@@ -117,6 +124,7 @@ namespace SecuritySystemLab1.Controllers
                     account.Password = encrypted;
                     db.Accounts.Add(account);
                     db.SaveChanges();
+                    Roles.AddUserToRole(model.Email, "User");
                     FormsAuthentication.SetAuthCookie(model.Email, false);
                     return RedirectToAction("Index", "Home");
                 }
@@ -197,6 +205,10 @@ namespace SecuritySystemLab1.Controllers
                 
                 db.Accounts.Remove(account);
                 db.SaveChanges();
+                if (Roles.GetRolesForUser(account.Login).Length != 0)
+                {
+                    Roles.RemoveUserFromRoles(account.Login, Roles.GetRolesForUser(account.Login));
+                }
                 FormsAuthentication.SignOut();
                 return RedirectToAction("Index", "Home");
             }            
