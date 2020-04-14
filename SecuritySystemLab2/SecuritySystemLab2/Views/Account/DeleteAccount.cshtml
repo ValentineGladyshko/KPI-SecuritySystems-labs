@@ -1,0 +1,19 @@
+﻿@model SecuritySystemLab1.Models.DeleteViewModel
+@{
+    ViewBag.Title = "Управление";
+}
+
+<h2>@ViewBag.Title.</h2>
+
+@using (Html.BeginForm("DeleteAccount", "Account", FormMethod.Post, new { @class = "form-horizontal", role = "form" }))
+{
+    @Html.AntiForgeryToken()
+    <h4>Удаление учетной записи</h4>
+    <hr />
+    @Html.ValidationSummary("", new { @class = "text-danger" })
+    <h5>Ви уверены что хотите удалить учетную запись @User.Identity.Name?</h5>
+    <div class="col-md-offset-2 col-md-10">
+        <input type="submit" value="Удалить" class="btn btn-default" />
+        @Html.ActionLink("Отмена", "Main", "Account", null, new { @class = "btn btn-default" })
+    </div>
+}
